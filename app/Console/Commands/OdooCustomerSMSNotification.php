@@ -27,13 +27,10 @@ class OdooCustomerSMSNotification extends Command
     public function handle()
     {
         $this->info('OdooWoo Customer POS Daily Notifications Initiated - ' . date("F j, Y, g:i a"));
-
         $date = $this->option('date');
         $this->info('Date: ' . date("F j, Y", strtotime($date)));
-
         $OdooPOS = new OdooPOS();
         $OdooPOS->getDailyCustomers($date);
-        
         $this->info('OdooWoo Customer POS Daily Notifications Completed.');
     }
 }

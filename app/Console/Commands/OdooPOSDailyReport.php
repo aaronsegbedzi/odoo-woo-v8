@@ -27,17 +27,13 @@ class OdooPOSDailyReport extends Command
     public function handle()
     {
         $this->info('OdooWoo POS Daily Report Notification Initiated - ' . date("F j, Y, g:i a"));
-        
         $recipients = $this->option('recipients');
         $this->info('Recipients: ' . $recipients);
         $recipients = explode(',', $recipients);
-
         $date = $this->option('date');
         $this->info('Date: ' . date("F j, Y", strtotime($date)));
-
         $OdooPOS = new OdooPOS();
         $OdooPOS->getDailySalesReport($recipients, $date);
-        
         $this->info('OdooWoo POS Daily Report Notification Completed.');
     }
 }
