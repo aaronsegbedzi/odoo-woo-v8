@@ -121,16 +121,8 @@ class SyncWooProducts extends Command
             $WooAttributeTerms = $WooAttribute->getAttributeTerms(env('WOOCOMMERCE_BRAND_ID', ''));
             $this->info('Woo Brands Fetched: ' . count($WooAttributeTerms));
 
-            // If you need to standardize encoding
-            $OdooBrands = array_map(function ($brand) {
-                return mb_convert_encoding($brand, 'UTF-8', 'auto');
-            }, $OdooBrands);
-            $WooAttributeTerms = array_map(function ($brand) {
-                return mb_convert_encoding($brand, 'UTF-8', 'auto');
-            }, array_column($WooAttributeTerms, 1));
-
             // Create Categories if not exist in WooCommerce.
-            $CreateTerms = array_diff($OdooBrands, $WooAttributeTerms);
+            $CreateTerms = array_diff($OdooBrands, array_column($WooAttributeTerms, 1));
 
             if (count($CreateTerms) > 0) {
                 $this->info('Creating ' . count($CreateTerms) . ' Brands in Woo.');
@@ -182,6 +174,7 @@ class SyncWooProducts extends Command
                 }
 
                 $searchValue = $CreateProduct['brand'];
+                $this->info($CreateProduct['brand']);
                 $index2 = null;
                 foreach ($WooAttributeTerms as $key => $element) {
                     if ($element[1] === $searchValue) {
