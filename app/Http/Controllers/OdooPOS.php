@@ -184,8 +184,7 @@ class OdooPOS extends Controller
         if (!empty($messages)) {
             foreach ($messages as $message) {
                 $smsController = new SMSController();
-                // $response = $smsController->sendMessage(array($message['recipient']), $message['message']);
-                $response = $smsController->sendMessage(array('0558181935'), $message['message']);
+                $response = $smsController->sendMessage(array($message['recipient']), $message['message']);
                 Log::info($response);
                 break;
             }
