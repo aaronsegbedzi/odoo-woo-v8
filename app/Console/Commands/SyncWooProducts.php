@@ -307,17 +307,14 @@ class SyncWooProducts extends Command
                 ];
 
                 if (!empty($UpdateProduct['x_image_last_updated_on'])) {
-                    $this->info('Image recently updated. Adding image to update job.');
                     $lastUpdatedTime = new DateTime($UpdateProduct['x_image_last_updated_on']);
                     $currentTime = new DateTime();
                     $interval = $currentTime->diff($lastUpdatedTime);
                     if ($interval->h < 1 && $interval->days === 0) {
-                        $BatchUpdate[$j] = [
-                            'images' => [
-                                [
-                                    'src' => $UpdateProduct['image']
-                                ]
-                            ],
+                        $BatchUpdate[$j]['images'] = [
+                            [
+                                'src' => $UpdateProduct['image']
+                            ]
                         ];
                     }
                 }
