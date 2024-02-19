@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Log;
 use Codexshaper\WooCommerce\Facades\Variation;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\OdooCategory;
+use DateTime;
 
 class SyncWooProductVariables extends Command
 {
@@ -49,92 +50,92 @@ class SyncWooProductVariables extends Command
         $this->info('Woo Variable Products Fetched: ' . count($WooProducts));
 
         //CATEGORIES/////////////////////////////////////////////////////////////////////////////////////////
-            // Get the categories from Odoo.
+        // Get the categories from Odoo.
 
-            $OdooCategory = new OdooCategory();
-            $OdooCategories = $OdooCategory->getCategories();
-            $this->info('Odoo Categories Fetched: ' . count($OdooCategories));
-            // dd($OdooCategories);
+        $OdooCategory = new OdooCategory();
+        $OdooCategories = $OdooCategory->getCategories();
+        $this->info('Odoo Categories Fetched: ' . count($OdooCategories));
+        // dd($OdooCategories);
 
+        // Get the categories from WooCommerce.
+        $WooCategory = new WooCategory();
+        $WooCategories = $WooCategory->getCategories();
+        $this->info('Woo Categories Fetched: ' . count($WooCategories));
+
+        // Create Categories if not exist in WooCommerce.
+        $array1_ids = array_column($OdooCategories, 1);
+        $array2_ids = array_column($WooCategories, 1);
+        $diff = array_diff($array1_ids, $array2_ids);
+        // Filter array1 based on differences
+        $CreateCategories = array_filter($OdooCategories, function ($item) use ($diff) {
+            return in_array($item[1], $diff);
+        });
+
+        if (count($CreateCategories)) {
+            $this->info('Creating ' . count($CreateCategories) . ' Categories in Woo.');
+            foreach ($CreateCategories as $CreateCategory) {
+                $CreateCategory[5] = $WooCategory->createCategory($CreateCategory[1]);
+                $this->info('Created Category: ' . $CreateCategory[1]);
+            }
             // Get the categories from WooCommerce.
             $WooCategory = new WooCategory();
             $WooCategories = $WooCategory->getCategories();
-            $this->info('Woo Categories Fetched: ' . count($WooCategories));
+        }
 
-            // Create Categories if not exist in WooCommerce.
-            $array1_ids = array_column($OdooCategories, 1);
-            $array2_ids = array_column($WooCategories, 1);
-            $diff = array_diff($array1_ids, $array2_ids);
-            // Filter array1 based on differences
-            $CreateCategories = array_filter($OdooCategories, function ($item) use ($diff) {
-                return in_array($item[1], $diff);
+        // Merge Odoo and WooCommerce categories.
+        $Categories = array_map(function ($item1) use ($WooCategories) {
+            $matchingItems = array_filter($WooCategories, function ($item2) use ($item1) {
+                return $item2[1] === $item1[1];
             });
+            return array_merge($item1, ...$matchingItems);
+        }, $OdooCategories);
 
-            if (count($CreateCategories)) {
-                $this->info('Creating ' . count($CreateCategories) . ' Categories in Woo.');
-                foreach ($CreateCategories as $CreateCategory) {
-                    $CreateCategory[5] = $WooCategory->createCategory($CreateCategory[1]);
-                    $this->info('Created Category: ' . $CreateCategory[1]);
+        if (count($CreateCategories)) {
+            $this->info('Applying Parent Structure for ' . count($CreateCategories) . ' Categories in Woo.');
+            foreach ($CreateCategories as $CreateCategory) {
+                if ($CreateCategory[3] == true) {
+                    $woo_id = $this->searchArray(1, $CreateCategory[1], 5, $Categories);
+                    $parent_odoo_id = $this->searchArray(1, $CreateCategory[1], 4, $Categories);
+                    $parent_id = $this->searchArray(0, $parent_odoo_id, 5, $Categories);
+                    $WooCategory->setParentCatergory($woo_id, $parent_id);
                 }
-                // Get the categories from WooCommerce.
-                $WooCategory = new WooCategory();
-                $WooCategories = $WooCategory->getCategories();
             }
-
-            // Merge Odoo and WooCommerce categories.
-            $Categories = array_map(function ($item1) use ($WooCategories) {
-                $matchingItems = array_filter($WooCategories, function ($item2) use ($item1) {
-                    return $item2[1] === $item1[1];
-                });
-                return array_merge($item1, ...$matchingItems);
-            }, $OdooCategories);
-
-            if (count($CreateCategories)) {
-                $this->info('Applying Parent Structure for ' . count($CreateCategories) . ' Categories in Woo.');
-                foreach ($CreateCategories as $CreateCategory) {
-                    if ($CreateCategory[3] == true) {
-                        $woo_id = $this->searchArray(1, $CreateCategory[1], 5, $Categories);
-                        $parent_odoo_id = $this->searchArray(1, $CreateCategory[1], 4, $Categories);
-                        $parent_id = $this->searchArray(0, $parent_odoo_id, 5, $Categories);
-                        $WooCategory->setParentCatergory($woo_id, $parent_id);
-                    }
-                }
-                // Get the categories from WooCommerce.
-                $WooCategory = new WooCategory();
-                $WooCategories = $WooCategory->getCategories();
-            }
+            // Get the categories from WooCommerce.
+            $WooCategory = new WooCategory();
+            $WooCategories = $WooCategory->getCategories();
+        }
         //CATEGORIES////////////////////////////////////////////////////////////////////////////////////////
 
         //BRANDS//////////////////////////////////////////////////////////////////////////////////////////////////////
-            // Get the Brand from Odoo.
-            $OdooBrands = [];
-            foreach ($OdooProducts as $OdooProduct) {
-                if ($OdooProduct['brand']) {
-                    $OdooBrands[] = $OdooProduct['brand'];
-                }
+        // Get the Brand from Odoo.
+        $OdooBrands = [];
+        foreach ($OdooProducts as $OdooProduct) {
+            if ($OdooProduct['brand']) {
+                $OdooBrands[] = $OdooProduct['brand'];
             }
-            $OdooBrands = array_values(array_map("unserialize", array_unique(array_map("serialize", $OdooBrands))));
-            $this->info('Odoo Brands Fetched: ' . count($OdooBrands));
+        }
+        $OdooBrands = array_values(array_map("unserialize", array_unique(array_map("serialize", $OdooBrands))));
+        $this->info('Odoo Brands Fetched: ' . count($OdooBrands));
 
+        // Get the Brand from WooCommerce.
+        $WooAttribute = new WooAttribute();
+        $WooAttributeTerms = $WooAttribute->getAttributeTerms(env('WOOCOMMERCE_BRAND_ID', ''));
+        $this->info('Woo Brands Fetched: ' . count($WooAttributeTerms));
+
+        // Create Brands if not exist in WooCommerce.
+        $array1_ids = $OdooBrands;
+        $array2_ids = array_column($WooAttributeTerms, 1);
+        $CreateTerms = array_diff($array1_ids, $array2_ids);
+        if (count($CreateTerms) > 0) {
+            $this->info('Creating ' . count($CreateTerms) . ' Brands in Woo.');
+            foreach ($CreateTerms as $CreateTerm) {
+                $WooAttribute->createAttributeTerm(env('WOOCOMMERCE_BRAND_ID', ''), $CreateTerm);
+                $this->info('Created Brand: ' . $CreateTerm);
+            }
             // Get the Brand from WooCommerce.
             $WooAttribute = new WooAttribute();
             $WooAttributeTerms = $WooAttribute->getAttributeTerms(env('WOOCOMMERCE_BRAND_ID', ''));
-            $this->info('Woo Brands Fetched: ' . count($WooAttributeTerms));
-
-            // Create Brands if not exist in WooCommerce.
-            $array1_ids = $OdooBrands;
-            $array2_ids = array_column($WooAttributeTerms, 1);
-            $CreateTerms = array_diff($array1_ids, $array2_ids);
-            if (count($CreateTerms) > 0) {
-                $this->info('Creating ' . count($CreateTerms) . ' Brands in Woo.');
-                foreach ($CreateTerms as $CreateTerm) {
-                    $WooAttribute->createAttributeTerm(env('WOOCOMMERCE_BRAND_ID', ''), $CreateTerm);
-                    $this->info('Created Brand: ' . $CreateTerm);
-                }
-                // Get the Brand from WooCommerce.
-                $WooAttribute = new WooAttribute();
-                $WooAttributeTerms = $WooAttribute->getAttributeTerms(env('WOOCOMMERCE_BRAND_ID', ''));
-            }
+        }
         //BRANDS//////////////////////////////////////////////////////////////////////////////////////////////////////
 
         //ATTRIBUTES//////////////////////////////////////////////////////////////////////////////////////////////////
@@ -361,71 +362,47 @@ class SyncWooProductVariables extends Command
                     }
                 }
 
-                if ($syncImages) {
-                    $data = [
-                        'name' => $Product['name'],
-                        'status' => 'publish',
-                        'type' => 'variable',
-                        'description' => $controller->formatDescription($Product['description'], $Product['directions'], $Product['ingredients'], $Product['name']),
-                        'short_description' => $controller->truncateString($Product['description']),
-                        'categories' => [
-                            [
-                                'id' => isset($Categories[$index][5]) ? $Categories[$index][5] : 15
-                            ],
+                $data = [
+                    'name' => $Product['name'],
+                    'status' => 'publish',
+                    'type' => 'variable',
+                    'description' => $controller->formatDescription($Product['description'], $Product['directions'], $Product['ingredients'], $Product['name']),
+                    'short_description' => $controller->truncateString($Product['description']),
+                    'categories' => [
+                        [
+                            'id' => isset($Categories[$index][5]) ? $Categories[$index][5] : 15
                         ],
-                        'images' => [
+                    ],
+                    'attributes' => [
+                        [
+                            'id' => env('WOOCOMMERCE_BRAND_ID', ''),
+                            'name' => 'Brand',
+                            'visible' => true,
+                            'variation' => false,
+                            'options' => [$WooAttributeTerms[$index2][1]]
+                        ],
+                        [
+                            'id' => $Attributes[$index1][0],
+                            'name' => $Attributes[$index1][1],
+                            'position' => 0,
+                            'visible' => false,
+                            'variation' => true,
+                            'options' => array_column($Product['variants'], 'att_value')
+                        ]
+                    ]
+                ];
+
+                if (!empty($Product['x_image_last_updated_on'])) {
+                    $lastUpdatedTime = new DateTime($Product['x_image_last_updated_on']);
+                    $currentTime = new DateTime();
+                    $interval = $currentTime->diff($lastUpdatedTime);
+                    if ($interval->h < 1 && $interval->days === 0) {
+                        $data['images'] = [
                             [
                                 'src' => $Product['image']
-                            ]
-                        ],
-                        'attributes' => [
-                            [
-                                'id' => env('WOOCOMMERCE_BRAND_ID', ''),
-                                'name' => 'Brand',
-                                'visible' => true,
-                                'variation' => false,
-                                'options' => [$WooAttributeTerms[$index2][1]]
                             ],
-                            [
-                                'id' => $Attributes[$index1][0],
-                                'name' => $Attributes[$index1][1],
-                                'position' => 0,
-                                'visible' => false,
-                                'variation' => true,
-                                'options' => array_column($Product['variants'], 'att_value')
-                            ]
-                        ]
-                    ];
-                } else {
-                    $data = [
-                        'name' => $Product['name'],
-                        'status' => 'publish',
-                        'type' => 'variable',
-                        'description' => $controller->formatDescription($Product['description'], $Product['directions'], $Product['ingredients'], $Product['name']),
-                        'short_description' => $controller->truncateString($Product['description']),
-                        'categories' => [
-                            [
-                                'id' => isset($Categories[$index][5]) ? $Categories[$index][5] : 15
-                            ],
-                        ],
-                        'attributes' => [
-                            [
-                                'id' => env('WOOCOMMERCE_BRAND_ID', ''),
-                                'name' => 'Brand',
-                                'visible' => true,
-                                'variation' => false,
-                                'options' => [$WooAttributeTerms[$index2][1]]
-                            ],
-                            [
-                                'id' => $Attributes[$index1][0],
-                                'name' => $Attributes[$index1][1],
-                                'position' => 0,
-                                'visible' => false,
-                                'variation' => true,
-                                'options' => array_column($Product['variants'], 'att_value')
-                            ]
-                        ]
-                    ];
+                        ];
+                    }
                 }
 
                 try {
@@ -464,52 +441,31 @@ class SyncWooProductVariables extends Command
                 if (count($CreateVariants) > 0) {
                     $j = 0;
                     foreach ($CreateVariants as $Variant) {
-                        if ($syncImages) {
-                            $BatchCreateVariants[$j] = [
-                                'status' => 'publish',
-                                'regular_price' => (string) $Variant['price'],
-                                'stock_status' => $Variant['qty'] > 0 ? 'instock' : 'outofstock',
-                                'stock_quantity' => $Variant['qty'] > 0 ? $Variant['qty'] : 0,
-                                'manage_stock' => true,
-                                'sku' => $Variant['sku'],
-                                'image' => [
-                                    'src' => $Variant['image']
-                                ],
-                                'attributes' => [
-                                    [
-                                        'id' => $Attributes[$index1][0],
-                                        'option' => $Variant['att_value']
-                                    ]
-                                ],
-                                'meta_data' => [
-                                    [
-                                        'key' => 'odoo_woo_id',
-                                        'value' => (string) $Variant['id']
-                                    ]
+
+                        $BatchCreateVariants[$j] = [
+                            'status' => 'publish',
+                            'regular_price' => (string) $Variant['price'],
+                            'stock_status' => $Variant['qty'] > 0 ? 'instock' : 'outofstock',
+                            'stock_quantity' => $Variant['qty'] > 0 ? $Variant['qty'] : 0,
+                            'manage_stock' => true,
+                            'sku' => $Variant['sku'],
+                            'image' => [
+                                'src' =>  $Variant['image']
+                            ],
+                            'attributes' => [
+                                [
+                                    'id' => $Attributes[$index1][0],
+                                    'option' => $Variant['att_value']
                                 ]
-                            ];
-                        } else {
-                            $BatchCreateVariants[$j] = [
-                                'status' => 'publish',
-                                'regular_price' => (string) $Variant['price'],
-                                'stock_status' => $Variant['qty'] > 0 ? 'instock' : 'outofstock',
-                                'stock_quantity' => $Variant['qty'] > 0 ? $Variant['qty'] : 0,
-                                'manage_stock' => true,
-                                'sku' => $Variant['sku'],
-                                'attributes' => [
-                                    [
-                                        'id' => $Attributes[$index1][0],
-                                        'option' => $Variant['att_value']
-                                    ]
-                                ],
-                                'meta_data' => [
-                                    [
-                                        'key' => 'odoo_woo_id',
-                                        'value' => (string) $Variant['id']
-                                    ]
+                            ],
+                            'meta_data' => [
+                                [
+                                    'key' => 'odoo_woo_id',
+                                    'value' => (string) $Variant['id']
                                 ]
-                            ];
-                        }
+                            ]
+                        ];
+
                         if ($controller->mycredEnabled()) {
                             $BatchCreateVariants[$j]['meta_data'][] = array(
                                 'key' => '_mycred_reward',
@@ -518,6 +474,7 @@ class SyncWooProductVariables extends Command
                                 )
                             );
                         }
+                        
                         $j++;
                     }
                 }
@@ -525,28 +482,27 @@ class SyncWooProductVariables extends Command
                 if (count($UpdateVariants) > 0) {
                     $j = 0;
                     foreach ($UpdateVariants as $Variant) {
-                        if ($syncImages) {
-                            $BatchUpdateVariants[$j] = [
-                                'id' => $Variant['woo_id'],
-                                'status' => 'publish',
-                                'regular_price' => (string) $Variant['price'],
-                                'stock_status' => $Variant['qty'] > 0 ? 'instock' : 'outofstock',
-                                'stock_quantity' => $Variant['qty'] > 0 ? $Variant['qty'] : 0,
-                                'manage_stock' => true,
-                                'image' => [
+
+                        $BatchUpdateVariants[$j] = [
+                            'id' => $Variant['woo_id'],
+                            'status' => 'publish',
+                            'regular_price' => (string) $Variant['price'],
+                            'stock_status' => $Variant['qty'] > 0 ? 'instock' : 'outofstock',
+                            'stock_quantity' => $Variant['qty'] > 0 ? $Variant['qty'] : 0,
+                            'manage_stock' => true
+                        ];
+
+                        if (!empty($Variant['x_image_last_updated_on'])) {
+                            $lastUpdatedTime = new DateTime($Variant['x_image_last_updated_on']);
+                            $currentTime = new DateTime();
+                            $interval = $currentTime->diff($lastUpdatedTime);
+                            if ($interval->h < 1 && $interval->days === 0) {
+                                $BatchUpdateVariants[$j]['image'] = [
                                     'src' => $Variant['image']
-                                ]
-                            ];
-                        } else {
-                            $BatchUpdateVariants[$j] = [
-                                'id' => $Variant['woo_id'],
-                                'status' => 'publish',
-                                'regular_price' => (string) $Variant['price'],
-                                'stock_status' => $Variant['qty'] > 0 ? 'instock' : 'outofstock',
-                                'stock_quantity' => $Variant['qty'] > 0 ? $Variant['qty'] : 0,
-                                'manage_stock' => true
-                            ];
+                                ];
+                            }
                         }
+
                         if ($controller->mycredEnabled()) {
                             $BatchUpdateVariants[$j]['meta_data'][] = array(
                                 'key' => '_mycred_reward',
@@ -555,7 +511,9 @@ class SyncWooProductVariables extends Command
                                 )
                             );
                         }
+
                         $j++;
+
                     }
                 }
 
