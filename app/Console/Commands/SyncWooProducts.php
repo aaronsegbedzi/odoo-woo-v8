@@ -111,7 +111,7 @@ class SyncWooProducts extends Command
         $OdooBrands = [];
         foreach ($OdooProducts as $OdooProduct) {
             if ($OdooProduct['brand']) {
-                $OdooBrands[] = $OdooProduct['brand'];
+                $OdooBrands[] = strtoupper($OdooProduct['brand']);
             }
         }
         $OdooBrands = array_values(array_map("unserialize", array_unique(array_map("serialize", $OdooBrands))));
@@ -122,7 +122,7 @@ class SyncWooProducts extends Command
         $WooAttributeTerms = $WooAttribute->getAttributeTerms(env('WOOCOMMERCE_BRAND_ID', ''));
         $this->info('Woo Brands Fetched: ' . count($WooAttributeTerms));
 
-        // Create Categories if not exist in WooCommerce.
+        // Create Brands if not exist in WooCommerce.
         $CreateTerms = array_diff($OdooBrands, array_column($WooAttributeTerms, 1));
 
         if (count($CreateTerms) > 0) {
@@ -139,7 +139,9 @@ class SyncWooProducts extends Command
 
         $CreateProducts = [];
         $UpdateProducts = [];
+        $DeleteProducts = [];
 
+        // Find products to create or update
         foreach ($OdooProducts as $OdooProduct) {
             $update = false;
             foreach ($WooProducts as $WooProduct) {
@@ -155,8 +157,23 @@ class SyncWooProducts extends Command
             }
         }
 
+        // Find products to delete
+        foreach ($WooProducts as $WooProduct) {
+            $found = false;
+            foreach ($OdooProducts as $OdooProduct) {
+                if ($WooProduct->sku == $OdooProduct['sku']) {
+                    $found = true;
+                    break;
+                }
+            }
+            if ($found == false) {
+                $DeleteProducts[] = $WooProduct;
+            }
+        }
+
         $this->info('No. Products To Create: ' . count($CreateProducts));
         $this->info('No. Products To Update: ' . count($UpdateProducts));
+        $this->info('No. Products To Trash: ' . count($DeleteProducts));
 
         $BatchCreate = [];
         $BatchUpdate = [];
@@ -255,6 +272,7 @@ class SyncWooProducts extends Command
             $j = 0;
             $this->info('Product Update Job Initiated');
             foreach ($UpdateProducts as $UpdateProduct) {
+
                 $searchValue = $UpdateProduct['cat'][0];
                 $index = null;
                 foreach ($Categories as $key => $element) {
@@ -264,6 +282,7 @@ class SyncWooProducts extends Command
                     }
                 }
 
+                // $this->info($UpdateProduct['brand']);
                 $searchValue = $UpdateProduct['brand'];
                 $index2 = null;
                 foreach ($WooAttributeTerms as $key => $element) {
@@ -345,6 +364,13 @@ class SyncWooProducts extends Command
                 sleep($controller->wooSleepSeconds());
             }
             $this->info('Product Update Job Completed');
+        }
+
+        if (count($DeleteProducts) > 0) {
+            foreach ($DeleteProducts as $DeleteProduct) {
+                $this->info('Trashing Product: ' . $DeleteProduct->name);
+                $product = Product::delete($DeleteProduct->id, ['force' => false]);
+            }
         }
 
         $this->info('OdooWoo Synchronization Completed. Have Fun :)');

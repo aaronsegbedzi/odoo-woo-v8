@@ -111,7 +111,7 @@ class SyncWooProductVariables extends Command
         $OdooBrands = [];
         foreach ($OdooProducts as $OdooProduct) {
             if ($OdooProduct['brand']) {
-                $OdooBrands[] = $OdooProduct['brand'];
+                $OdooBrands[] = strtoupper($OdooProduct['brand']);
             }
         }
         $OdooBrands = array_values(array_map("unserialize", array_unique(array_map("serialize", $OdooBrands))));
@@ -176,7 +176,9 @@ class SyncWooProductVariables extends Command
 
         $CreateProducts = [];
         $UpdateProducts = [];
+        $DeleteProducts = [];
 
+        // Find products to create or update
         foreach ($OdooProducts as $OdooProduct) {
             $update = false;
             foreach ($WooProducts as $WooProduct) {
@@ -192,8 +194,23 @@ class SyncWooProductVariables extends Command
             }
         }
 
+        // Find products to delete
+        foreach ($WooProducts as $WooProduct) {
+            $found = false;
+            foreach ($OdooProducts as $OdooProduct) {
+                if ($OdooProduct['id'] == $this->getMetaValue($WooProduct->meta_data)) {
+                    $found = true;
+                    break;
+                }
+            }
+            if ($found == false) {
+                $DeleteProducts[] = $WooProduct;
+            }
+        }
+
         $this->info('No. Product Variables To Create: ' . count($CreateProducts));
         $this->info('No. Product Variables To Update: ' . count($UpdateProducts));
+        $this->info('No. Product Variables To Trash: ' . count($DeleteProducts));
 
         if (count($CreateProducts) > 0) {
             $total = count($CreateProducts);
@@ -474,7 +491,7 @@ class SyncWooProductVariables extends Command
                                 )
                             );
                         }
-                        
+
                         $j++;
                     }
                 }
@@ -513,7 +530,6 @@ class SyncWooProductVariables extends Command
                         }
 
                         $j++;
-
                     }
                 }
 
@@ -532,6 +548,13 @@ class SyncWooProductVariables extends Command
             }
 
             $this->info('Product Update Job Completed');
+        }
+
+        if (count($DeleteProducts) > 0) {
+            foreach ($DeleteProducts as $DeleteProduct) {
+                $this->info('Trashing Product: ' . $DeleteProduct->name);
+                $product = Product::delete($DeleteProduct->id, ['force' => false]);
+            }
         }
 
         $this->info('OdooWoo Synchronization Completed. Have Fun :)');

@@ -38,12 +38,12 @@ class Test extends Command
      */
     public function handle()
     {
-        $OdooCategory = new OdooCategory();
-        $OdooCategories = $OdooCategory->getCategories();
-        $this->info('Odoo Categories Fetched: ' . count($OdooCategories));
+        // $OdooCategory = new OdooCategory();
+        // $OdooCategories = $OdooCategory->getCategories();
+        // $this->info('Odoo Categories Fetched: ' . count($OdooCategories));
 
-        $WooCategories = new WooCategory();
-        $WooCategoriy = $WooCategories->syncCategory($OdooCategories);
+        // $WooCategories = new WooCategory();
+        // $WooCategoriy = $WooCategories->syncCategory($OdooCategories);
 
         // $WooCategory = new WooCategory();
         // $WooCategories = $WooCategory->getCategories();
