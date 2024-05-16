@@ -36,7 +36,8 @@ class OdooProduct extends Controller
             'x_directions',
             'description_sale',
             'write_date',
-            'x_image_last_updated_on'
+            'x_image_last_updated_on',
+            'barcode'
         );
 
         $criteria = array(
@@ -68,7 +69,8 @@ class OdooProduct extends Controller
                     'description' => $product['description_sale'] == true ? $product['description_sale'] : '',
                     'directions' => $product['x_directions'] == true ? $product['x_directions'] : '',
                     'ingredients' => $product['x_ingredients'] == true ? $product['x_ingredients'] : '',
-                    'is_variable' => $product['has_configurable_attributes']
+                    'is_variable' => $product['has_configurable_attributes'],
+                    'gtin' => $product['barcode']
                 );
             }
             if (count($payload) > 0) {
@@ -137,7 +139,7 @@ class OdooProduct extends Controller
     {
         sleep($this->odooSleepSeconds());
         $payload = [];
-        $fields = array('id', 'product_template_variant_value_ids', 'qty_available', 'list_price', 'pricelist_item_count', 'default_code', 'x_image_last_updated_on');
+        $fields = array('id', 'product_template_variant_value_ids', 'qty_available', 'list_price', 'pricelist_item_count', 'default_code', 'x_image_last_updated_on', 'barcode');
         $criteria = array(array('product_tmpl_id', '=', $id));
         try {
             $products = $this->client->search_read('product.product', $criteria, $fields);
@@ -154,7 +156,8 @@ class OdooProduct extends Controller
                 'price' => $product['pricelist_item_count'] > 0 ? $this->getVariantCustomPrice($product['id'], $product['list_price']) : $product['list_price'],
                 'att_name' => $variant['name'],
                 'att_value' => $variant['value'],
-                'x_image_last_updated_on' => $product['x_image_last_updated_on']
+                'x_image_last_updated_on' => $product['x_image_last_updated_on'],
+                'gtin' => $product['barcode']
             );
         }
         return $payload;

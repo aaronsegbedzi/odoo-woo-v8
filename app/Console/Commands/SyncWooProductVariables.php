@@ -317,6 +317,10 @@ class SyncWooProductVariables extends Command
                             [
                                 'key' => 'odoo_woo_id',
                                 'value' => (string) $Variant['id']
+                            ],
+                            [
+                                "key" => "_woosea_gtin",
+                                "value" => (string) $Variant['gtin']
                             ]
                         ]
                     ];
@@ -479,6 +483,10 @@ class SyncWooProductVariables extends Command
                                 [
                                     'key' => 'odoo_woo_id',
                                     'value' => (string) $Variant['id']
+                                ],
+                                [
+                                    "key" => "_woosea_gtin",
+                                    "value" => (string) $Variant['gtin']
                                 ]
                             ]
                         ];
@@ -506,7 +514,13 @@ class SyncWooProductVariables extends Command
                             'regular_price' => (string) $Variant['price'],
                             'stock_status' => $Variant['qty'] > 0 ? 'instock' : 'outofstock',
                             'stock_quantity' => $Variant['qty'] > 0 ? $Variant['qty'] : 0,
-                            'manage_stock' => true
+                            'manage_stock' => true,
+                            'meta_data' => [
+                                [
+                                    "key" => "_woosea_gtin",
+                                    "value" => (string) $Variant['gtin']
+                                ]
+                            ]
                         ];
 
                         if (!empty($Variant['x_image_last_updated_on'])) {

@@ -9,7 +9,6 @@ use App\Http\Controllers\WooCategory;
 use App\Http\Controllers\WooAttribute;
 use App\Http\Controllers\WooProduct;
 use Codexshaper\WooCommerce\Facades\Product;
-use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\OdooCategory;
 use DateTime;
 
@@ -235,6 +234,10 @@ class SyncWooProducts extends Command
                         [
                             'key' => 'odoo_woo_id',
                             'value' => (string) $CreateProduct['id']
+                        ],
+                        [
+                            "key" => "_woosea_gtin",
+                            "value" => (string) $CreateProduct['gtin']
                         ]
                     ]
                 ];
@@ -321,6 +324,10 @@ class SyncWooProducts extends Command
                         [
                             'key' => 'odoo_woo_id',
                             'value' => (string) $UpdateProduct['id']
+                        ],
+                        [
+                            "key" => "_woosea_gtin",
+                            "value" => (string) $UpdateProduct['gtin']
                         ]
                     ]
                 ];

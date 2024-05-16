@@ -38,6 +38,8 @@ class Test extends Command
      */
     public function handle()
     {
+        $product = Product::find(333695);
+        dd($product);
         // $OdooCategory = new OdooCategory();
         // $OdooCategories = $OdooCategory->getCategories();
         // $this->info('Odoo Categories Fetched: ' . count($OdooCategories));
