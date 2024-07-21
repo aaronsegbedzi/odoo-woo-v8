@@ -39,7 +39,7 @@ class SyncWooProductVariables extends Command
         $syncImages = $this->option('images');
         $controller = new Controller();
 
-        $dateTime = date("Y-m-d h:m:s", strtotime("-1 hour"));
+        $dateTime = date("Y-m-d h:i:s", strtotime("-1 hour"));
         $this->info('Date Time: ' . $dateTime);
 
         // Get the products from Odoo.

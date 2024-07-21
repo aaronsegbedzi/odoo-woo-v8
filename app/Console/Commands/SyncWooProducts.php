@@ -37,7 +37,7 @@ class SyncWooProducts extends Command
         $syncImages = $this->option('images');
         $controller = new Controller();
 
-        $dateTime = date("Y-m-d h:m:s", strtotime("-1 hour"));
+        $dateTime = date("Y-m-d h:i:s", strtotime("-1 hour"));
         $this->info('Date Time: ' . $dateTime);
 
         // Get the products from Odoo.
@@ -194,7 +194,7 @@ class SyncWooProducts extends Command
                 }
 
                 $searchValue = $CreateProduct['brand'];
-                $this->info($CreateProduct['brand']);
+                // $this->info($CreateProduct['brand']);
                 $index2 = null;
                 foreach ($WooAttributeTerms as $key => $element) {
                     if ($element[1] === $searchValue) {
