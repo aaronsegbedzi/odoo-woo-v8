@@ -35,7 +35,7 @@ class Kernel extends ConsoleKernel
 
         if (config('app.odoowoo_sync_variable')) {
             $schedule->command('woo:sync-woo-product-variables')
-                ->hourlyAt(30)
+                ->hourly()
                 ->withoutOverlapping(60)
                 ->runInBackground()
                 ->emailOutputTo(config('app.odoowoo_admin_email'));
