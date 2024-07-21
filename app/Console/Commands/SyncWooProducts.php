@@ -37,9 +37,12 @@ class SyncWooProducts extends Command
         $syncImages = $this->option('images');
         $controller = new Controller();
 
+        $dateTime = date("Y-m-d h:m:s", strtotime("-1 hour"));
+        $this->info('Date Time: ' . $dateTime);
+
         // Get the products from Odoo.
         $OdooProduct = new OdooProduct();
-        $OdooProducts = $OdooProduct->getProducts();
+        $OdooProducts = $OdooProduct->getProducts(true, $dateTime);
         $this->info('Odoo Simple Products Fetched: ' . count($OdooProducts));
 
         // Get the products from WooCommerce.
@@ -172,7 +175,7 @@ class SyncWooProducts extends Command
 
         $this->info('No. Products To Create: ' . count($CreateProducts));
         $this->info('No. Products To Update: ' . count($UpdateProducts));
-        $this->info('No. Products To Trash: ' . count($DeleteProducts));
+        // $this->info('No. Products To Trash: ' . count($DeleteProducts));
 
         $BatchCreate = [];
         $BatchUpdate = [];
@@ -373,12 +376,12 @@ class SyncWooProducts extends Command
             $this->info('Product Update Job Completed');
         }
 
-        if (count($DeleteProducts) > 0) {
-            foreach ($DeleteProducts as $DeleteProduct) {
-                $this->info('Trashing Product: ' . $DeleteProduct->name);
-                $product = Product::delete($DeleteProduct->id, ['force' => false]);
-            }
-        }
+        // if (count($DeleteProducts) > 0) {
+        //     foreach ($DeleteProducts as $DeleteProduct) {
+        //         $this->info('Trashing Product: ' . $DeleteProduct->name);
+        //         $product = Product::delete($DeleteProduct->id, ['force' => false]);
+        //     }
+        // }
 
         $this->info('OdooWoo Synchronization Completed. Have Fun :)');
     }

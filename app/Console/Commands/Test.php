@@ -16,6 +16,7 @@ use Codexshaper\WooCommerce\Facades\Term;
 use Illuminate\Support\Facades\Mail;
 use App\Http\Controllers\OdooProduct;
 use App\Http\Controllers\OdooCategory;
+use App\Http\Controllers\Controller;
 
 class Test extends Command
 {
@@ -38,48 +39,65 @@ class Test extends Command
      */
     public function handle()
     {
-        $product = Product::find(333695);
-        dd($product);
-        // $OdooCategory = new OdooCategory();
-        // $OdooCategories = $OdooCategory->getCategories();
-        // $this->info('Odoo Categories Fetched: ' . count($OdooCategories));
+        $controller = new Controller();
+        $dateTime = strtotime(date("Y-m-d h:m:s")."- 72 hour");
+        $formattedDateTime = date("Y-m-d h:m:s", $dateTime);
 
-        // $WooCategories = new WooCategory();
-        // $WooCategoriy = $WooCategories->syncCategory($OdooCategories);
+        // Get the products from Odoo.
+        $OdooProduct = new OdooProduct();
+        $OdooProducts = $OdooProduct->getProducts(true, $formattedDateTime);
+        $this->info('Odoo Simple Products Fetched: ' . count($OdooProducts));
 
-        // $WooCategory = new WooCategory();
-        // $WooCategories = $WooCategory->getCategories();
-        // $this->info('Woo Categories Fetched: ' . count($WooCategories));
+        // Get the products from WooCommerce.
+        $WooProduct = new WooProduct();
+        $WooProducts = $WooProduct->getProducts();
+        $this->info('Woo Simple Products Fetched: ' . count($WooProducts));
 
-        // $Categories = array_map(function ($item1) use ($WooCategories) {
-        //     $matchingItems = array_filter($WooCategories, function ($item2) use ($item1) {
-        //         return $item2[1] === $item1[1];
-        //     });
-        //     return array_merge($item1, ...$matchingItems);
-        // }, $OdooCategories);
+        $UpdateProducts = [];
 
-        // foreach ($Categories as $Category) {
-        //     if ($Category[2] == true) {
-        //         $this->info('Cat: '. $Category[1]);
-        //         $this->info('Woo ID: '. $Category[5]);
-        //         $parent_id = $this->searchArray(0, $Category[4], 5, $Categories);
-        //         $this->info('Woo Parent ID: '. $parent_id);
-        //         $test = $WooCategory->setParentCatergory($Category[5], $parent_id);
-        //         $this->info($test);
-        //     }
-        // }
+        // Find products to create or update
+        foreach ($OdooProducts as $OdooProduct) {
+            foreach ($WooProducts as $WooProduct) {
+                if ($OdooProduct['sku'] == $WooProduct->sku) {
+                    $OdooProduct['woo_id'] = $WooProduct->id;
+                    $UpdateProducts[] = $OdooProduct;
+                    break;
+                }
+            }
+        }
+
+        $this->info('No. Products To Update: ' . count($UpdateProducts));
+
+        if (count($UpdateProducts) > 0) {
+            $j = 0;
+            $this->info('Product Update Job Initiated');
+            foreach ($UpdateProducts as $UpdateProduct) {
+                $BatchUpdate[$j] = [
+                    'id' => $UpdateProduct['woo_id'],
+                    'regular_price' => (string) $UpdateProduct['price'],
+                    'manage_stock' => true,
+                    'stock_quantity' => $UpdateProduct['qty'] > 0 ? $UpdateProduct['qty'] : 0,
+                    'stock_status' => $UpdateProduct['qty'] > 0 ? 'instock' : 'outofstock'
+                ];
+                $j++;
+            }
+            $batchSize = $controller->wooProductsPerBatch();
+            $i = 1;
+            $chunks = array_chunk($BatchUpdate, $batchSize);
+            foreach ($chunks as $chunk) {
+                try {
+                    $this->info('Batch ' . $i . ': ' . date("F j, Y, g:i a"));
+                    $_batch = Product::batch(['update' => $chunk]);
+                    $this->info('COMPLETED Batch ' . $i . ' @ ' . date("F j, Y, g:i a"));
+                } catch (\Exception $e) {
+                    $this->info('FAILED Batch ' . $i . ' - REASON: ' . $e->getMessage());
+                }
+                $i++;
+                sleep($controller->wooSleepSeconds());
+            }
+            $this->info('Product Update Job Completed');
+        }
         
     }
 
-    private function searchArray($searchKey, $searchValue, $returnKey, $array)
-    {
-        $result = null;
-        foreach ($array as $item) {
-            if ($item[$searchKey] == $searchValue) {
-                $result = $item[$returnKey];
-                break;
-            }
-        }
-        return $result;
-    }
 }

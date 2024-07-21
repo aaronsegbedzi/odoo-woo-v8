@@ -17,7 +17,7 @@ class OdooProduct extends Controller
         $this->client = new Client($url, $database, $user, $password);
     }
 
-    public function getProducts($limit = 2000)
+    public function getProducts($range = false, $lastUpdatedAt = '', $limit = 2000)
     {
 
         sleep($this->odooSleepSeconds());
@@ -47,6 +47,10 @@ class OdooProduct extends Controller
             array('available_in_pos', '=', true),
             array('has_configurable_attributes', '=', false)
         );
+
+        if ($range) {
+            $criteria[] = array('write_date', '>=', $lastUpdatedAt);
+        }
 
         try {
             $products = $this->client->search_read('product.template', $criteria, $fields, $limit);
@@ -78,10 +82,10 @@ class OdooProduct extends Controller
             }
         }
 
-        exit();
+        exit('Nothing to Process!');
     }
 
-    public function getVariableProducts($limit = 2000)
+    public function getVariableProducts($with_variants = true, $lastUpdatedAt = '', $single = false, $id = 0, $limit = 2000)
     {
 
         $fields = array(
@@ -106,6 +110,14 @@ class OdooProduct extends Controller
             array('has_configurable_attributes', '=', true)
         );
 
+        if($lastUpdatedAt != ''){
+            $criteria[] = array('write_date', '>=', $lastUpdatedAt);
+        }
+
+        if ($single){
+            $criteria[] = array('id', '=', $id);
+        }
+
         try {
             $products = $this->client->search_read('product.template', $criteria, $fields, $limit);
         } catch (\Throwable $th) {
@@ -123,7 +135,7 @@ class OdooProduct extends Controller
                     'description' => $product['description_sale'] == true ? $product['description_sale'] : '',
                     'directions' => $product['x_directions'] == true ? $product['x_directions'] : '',
                     'ingredients' => $product['x_ingredients'] == true ? $product['x_ingredients'] : '',
-                    'variants' => $this->getProductVariants($product['id']),
+                    'variants' => $with_variants ? $this->getProductVariants($product['id']) : '',
                     'x_image_last_updated_on' => $product['x_image_last_updated_on']
                 );
             }
@@ -132,7 +144,7 @@ class OdooProduct extends Controller
             }
         }
 
-        exit();
+        exit('Nothing to Process!');
     }
 
     private function getProductVariants($id)

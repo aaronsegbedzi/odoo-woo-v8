@@ -39,9 +39,12 @@ class SyncWooProductVariables extends Command
         $syncImages = $this->option('images');
         $controller = new Controller();
 
+        $dateTime = date("Y-m-d h:m:s", strtotime("-1 hour"));
+        $this->info('Date Time: ' . $dateTime);
+
         // Get the products from Odoo.
         $OdooProduct = new OdooProduct();
-        $OdooProducts = $OdooProduct->getVariableProducts();
+        $OdooProducts = $OdooProduct->getVariableProducts(true, $dateTime);
         $this->info('Odoo Variable Products Fetched: ' . count($OdooProducts));
 
         // Get the products from WooCommerce.
@@ -176,7 +179,7 @@ class SyncWooProductVariables extends Command
 
         $CreateProducts = [];
         $UpdateProducts = [];
-        $DeleteProducts = [];
+        // $DeleteProducts = [];
 
         // Find products to create or update
         foreach ($OdooProducts as $OdooProduct) {
@@ -194,23 +197,23 @@ class SyncWooProductVariables extends Command
             }
         }
 
-        // Find products to delete
-        foreach ($WooProducts as $WooProduct) {
-            $found = false;
-            foreach ($OdooProducts as $OdooProduct) {
-                if ($OdooProduct['id'] == $this->getMetaValue($WooProduct->meta_data)) {
-                    $found = true;
-                    break;
-                }
-            }
-            if ($found == false) {
-                $DeleteProducts[] = $WooProduct;
-            }
-        }
+        // // Find products to delete
+        // foreach ($WooProducts as $WooProduct) {
+        //     $found = false;
+        //     foreach ($OdooProducts as $OdooProduct) {
+        //         if ($OdooProduct['id'] == $this->getMetaValue($WooProduct->meta_data)) {
+        //             $found = true;
+        //             break;
+        //         }
+        //     }
+        //     if ($found == false) {
+        //         $DeleteProducts[] = $WooProduct;
+        //     }
+        // }
 
         $this->info('No. Product Variables To Create: ' . count($CreateProducts));
         $this->info('No. Product Variables To Update: ' . count($UpdateProducts));
-        $this->info('No. Product Variables To Trash: ' . count($DeleteProducts));
+        // $this->info('No. Product Variables To Trash: ' . count($DeleteProducts));
 
         if (count($CreateProducts) > 0) {
             $total = count($CreateProducts);
@@ -564,12 +567,12 @@ class SyncWooProductVariables extends Command
             $this->info('Product Update Job Completed');
         }
 
-        if (count($DeleteProducts) > 0) {
-            foreach ($DeleteProducts as $DeleteProduct) {
-                $this->info('Trashing Product: ' . $DeleteProduct->name);
-                $product = Product::delete($DeleteProduct->id, ['force' => false]);
-            }
-        }
+        // if (count($DeleteProducts) > 0) {
+        //     foreach ($DeleteProducts as $DeleteProduct) {
+        //         $this->info('Trashing Product: ' . $DeleteProduct->name);
+        //         $product = Product::delete($DeleteProduct->id, ['force' => false]);
+        //     }
+        // }
 
         $this->info('OdooWoo Synchronization Completed. Have Fun :)');
     }
