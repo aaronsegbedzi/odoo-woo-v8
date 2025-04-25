@@ -103,7 +103,7 @@ class OdooProduct extends Controller
         );
 
         $criteria = array(
-            array('priority', '=', 1),
+            array('is_favorite', '=', 1),
             array('x_brand', '!=', false),
             array('image_1920', '!=', false),
             array('available_in_pos', '=', true),
