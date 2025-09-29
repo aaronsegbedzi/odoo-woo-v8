@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Log;
 use Codexshaper\WooCommerce\Facades\Variation;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\OdooCategory;
+use Illuminate\Support\Facades\Cache;
 use DateTime;
 
 class SyncWooProductVariables extends Command

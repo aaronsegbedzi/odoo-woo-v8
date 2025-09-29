@@ -10,6 +10,7 @@ use App\Http\Controllers\WooAttribute;
 use App\Http\Controllers\WooProduct;
 use Codexshaper\WooCommerce\Facades\Product;
 use App\Http\Controllers\OdooCategory;
+use Illuminate\Support\Facades\Cache;
 use DateTime;
 
 class SyncWooProducts extends Command
@@ -184,6 +185,7 @@ class SyncWooProducts extends Command
             $j = 0;
             $this->info('Products Create Job Initiated');
             foreach ($CreateProducts as $CreateProduct) {
+
                 $searchValue = $CreateProduct['cat'][0];
                 $index = null;
                 foreach ($Categories as $key => $element) {
@@ -230,7 +232,9 @@ class SyncWooProducts extends Command
                             'name' => 'Brand',
                             'visible' => true,
                             'variation' => false,
-                            'options' => [$WooAttributeTerms[$index2][1]]
+                            'options' => [
+                                $WooAttributeTerms[$index2][1] ?? ''
+                            ]
                         ]
                     ],
                     'meta_data' => [

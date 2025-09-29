@@ -99,7 +99,8 @@ class OdooProduct extends Controller
             'x_ingredients',
             'x_directions',
             'description_sale',
-            'x_image_last_updated_on'
+            'x_image_last_updated_on',
+            'pricelist_rule_ids'
         );
 
         $criteria = array(
@@ -135,7 +136,7 @@ class OdooProduct extends Controller
                     'description' => $product['description_sale'] == true ? $product['description_sale'] : '',
                     'directions' => $product['x_directions'] == true ? $product['x_directions'] : '',
                     'ingredients' => $product['x_ingredients'] == true ? $product['x_ingredients'] : '',
-                    'variants' => $with_variants ? $this->getProductVariants($product['id']) : '',
+                    'variants' => $with_variants ? $this->getProductVariants($product['id'], $product['pricelist_rule_ids']) : '',
                     'x_image_last_updated_on' => $product['x_image_last_updated_on']
                 );
             }
@@ -147,17 +148,18 @@ class OdooProduct extends Controller
         exit('Nothing to Process!');
     }
 
-    private function getProductVariants($id)
+    private function getProductVariants($id, $pids)
     {
         sleep($this->odooSleepSeconds());
         $payload = [];
-        $fields = array('id', 'product_template_variant_value_ids', 'qty_available', 'list_price', 'pricelist_item_count', 'default_code', 'x_image_last_updated_on', 'barcode');
+        $fields = array('id', 'product_template_variant_value_ids', 'qty_available', 'list_price', 'default_code', 'x_image_last_updated_on', 'barcode');
         $criteria = array(array('product_tmpl_id', '=', $id));
         try {
             $products = $this->client->search_read('product.product', $criteria, $fields);
         } catch (\Throwable $th) {
             throw $th;
         }
+
         foreach ($products as $product) {
             $variant = $this->getVariantAttribute($product['product_template_variant_value_ids']);
             $payload[] = array(
@@ -165,7 +167,7 @@ class OdooProduct extends Controller
                 'sku' => $product['default_code'],
                 'image' => env('ODOO_IMG_VARIANT_URL', '') . '/' . $product['id'] . '.jpg',
                 'qty' => $product['qty_available'],
-                'price' => $product['pricelist_item_count'] > 0 ? $this->getVariantCustomPrice($product['id'], $product['list_price']) : $product['list_price'],
+                'price' => count($pids) > 0 ? $this->getVariantCustomPrice($product['id'], $product['list_price']) : $product['list_price'],
                 'att_name' => $variant['name'],
                 'att_value' => $variant['value'],
                 'x_image_last_updated_on' => $product['x_image_last_updated_on'],
