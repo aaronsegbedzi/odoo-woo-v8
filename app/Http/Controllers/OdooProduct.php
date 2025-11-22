@@ -17,7 +17,7 @@ class OdooProduct extends Controller
         $this->client = new Client($url, $database, $user, $password);
     }
 
-    public function getProducts($range = false, $lastUpdatedAt = '', $limit = 2000)
+    public function getProducts($range = false, $lastUpdatedAt = '', $limit = 3000)
     {
 
         sleep($this->odooSleepSeconds());
@@ -41,6 +41,7 @@ class OdooProduct extends Controller
         );
 
         $criteria = array(
+            array('type', '=', 'consu'),
             array('x_brand', '!=', false),
             array('image_1920', '!=', false),
             array('default_code', '!=', ''),
@@ -85,7 +86,7 @@ class OdooProduct extends Controller
         exit('Nothing to Process!');
     }
 
-    public function getVariableProducts($with_variants = true, $lastUpdatedAt = '', $single = false, $id = 0, $limit = 2000)
+    public function getVariableProducts($with_variants = true, $lastUpdatedAt = '', $single = false, $id = 0, $limit = 3000)
     {
 
         $fields = array(
@@ -104,6 +105,7 @@ class OdooProduct extends Controller
         );
 
         $criteria = array(
+            array('type', '=', 'consu'),
             array('is_favorite', '=', 1),
             array('x_brand', '!=', false),
             array('image_1920', '!=', false),

@@ -11,6 +11,7 @@ use App\Http\Controllers\WooProduct;
 use Codexshaper\WooCommerce\Facades\Product;
 use App\Http\Controllers\OdooCategory;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use DateTime;
 
 class SyncWooProducts extends Command
@@ -41,15 +42,30 @@ class SyncWooProducts extends Command
         $dateTime = date("Y-m-d h:i:s", strtotime("-1 hour"));
         $this->info('Date Time: ' . $dateTime);
 
+        // Cache::forget('odoo_products');
+        // Cache::forget('woo_products');
+
         // Get the products from Odoo.
         $OdooProduct = new OdooProduct();
         $OdooProducts = $OdooProduct->getProducts(true, $dateTime);
         $this->info('Odoo Simple Products Fetched: ' . count($OdooProducts));
+        // $OdooProducts = Cache::remember(
+        //     'odoo_products',
+        //     now()->addMinutes(60),
+        //     fn() => $OdooProduct->getProducts(false, $dateTime)
+        // );
+        $this->info('Odoo Simple Products Fetched (cached): ' . count($OdooProducts));
 
         // Get the products from WooCommerce.
         $WooProduct = new WooProduct();
         $WooProducts = $WooProduct->getProducts();
         $this->info('Woo Simple Products Fetched: ' . count($WooProducts));
+        // $WooProducts = Cache::remember(
+        //     'woo_products',
+        //     now()->addMinutes(60),
+        //     fn() => $WooProduct->getProducts()
+        // );
+        $this->info('Woo Simple Products Fetched (cached): ' . count($WooProducts));
 
         //CATEGORIES/////////////////////////////////////////////////////////////////////////////////////////
         // Get the categories from Odoo.
@@ -113,10 +129,12 @@ class SyncWooProducts extends Command
         // Get the Brand from Odoo.
         $OdooBrands = [];
         foreach ($OdooProducts as $OdooProduct) {
-            if ($OdooProduct['brand']) {
-                $OdooBrands[] = strtoupper($OdooProduct['brand']);
+            if (!empty($OdooProduct['brand'])) {
+                $brand = $this->cleanEncoding($OdooProduct['brand']);
+                $OdooBrands[] = strtoupper($brand);
             }
         }
+
         $OdooBrands = array_values(array_map("unserialize", array_unique(array_map("serialize", $OdooBrands))));
         $this->info('Odoo Brands Fetched: ' . count($OdooBrands));
 
@@ -268,6 +286,9 @@ class SyncWooProducts extends Command
                     $this->info('Batch ' . $i . ': ' . date("F j, Y, g:i a"));
                     $_batch = Product::batch(['create' => $chunk]);
                     // $this->info($_batch);
+                    // Log::info('Woo Batch Response', [
+                    //     'batch' => $_batch
+                    // ]);
                     $this->info('COMPLETED Batch ' . $i . ' @ ' . date("F j, Y, g:i a"));
                 } catch (\Exception $e) {
                     $this->info('FAILED Batch ' . $i . ' - REASON: ' . $e->getMessage());
@@ -370,6 +391,9 @@ class SyncWooProducts extends Command
                 try {
                     $this->info('Batch ' . $i . ': ' . date("F j, Y, g:i a"));
                     $_batch = Product::batch(['update' => $chunk]);
+                    // Log::info('Woo Batch Response', [
+                    //     'batch' => $_batch
+                    // ]);
                     $this->info('COMPLETED Batch ' . $i . ' @ ' . date("F j, Y, g:i a"));
                 } catch (\Exception $e) {
                     $this->info('FAILED Batch ' . $i . ' - REASON: ' . $e->getMessage());
@@ -465,5 +489,24 @@ class SyncWooProducts extends Command
             }
         }
         return $result;
+    }
+
+    private function cleanEncoding($value)
+    {
+        if (!is_string($value)) return $value;
+
+        // Replace fancy quotes with normal '
+        $value = str_replace(
+            ["’", "‘", "´", "`"],
+            "'",
+            $value
+        );
+
+        // Ensure UTF-8 safe string
+        return mb_convert_encoding(
+            $value,
+            'UTF-8',
+            mb_detect_encoding($value, ['UTF-8', 'ISO-8859-1', 'Windows-1252'], true) ?: 'UTF-8'
+        );
     }
 }

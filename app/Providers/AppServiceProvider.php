@@ -23,6 +23,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot()
     {
-        //
+        mb_internal_encoding('UTF-8');
+        ini_set('default_charset', 'UTF-8');
     }
 }
