@@ -237,8 +237,56 @@ return [
     'odoowoo_admin_email' => env('MAIL_NOTIFICATIONS','admin@cocoware.co.uk'),
     'odoowoo_sync_simple' => (bool) env('ODOOWOO_SYNC_SIMPLE_ENABLED', false),
     'odoowoo_sync_variable' => (bool) env('ODOOWOO_SYNC_VARIABLE_ENABLED', false),
-    'odoowoo_cron' => (bool) env('ODOOWOO_CRON_DEBUG', false),
-    
+    // Scheduler liveness. `woo:cron` stamps a heartbeat every minute and
+    // `woo:cron --check` fails when it, or a sync watermark, goes stale.
+    //
+    // Defaults to ON, unlike the sync flags. This was ODOOWOO_CRON_DEBUG and
+    // defaulted to off, which is backwards for a liveness check: the setup it
+    // detects a fault in — a host where nobody wired up `schedule:run` — is
+    // exactly the setup where nobody thought to switch the detector on either.
+    'odoowoo_heartbeat' => (bool) env('ODOOWOO_HEARTBEAT_ENABLED', true),
+    // How old the scheduler heartbeat may get before --check calls it stale.
+    // The tick is every minute, so this is "four consecutive ticks missed",
+    // which tolerates one slow schedule:run without crying wolf.
+    'odoowoo_heartbeat_max_tick_minutes' => (int) env('ODOOWOO_HEARTBEAT_MAX_TICK_MINUTES', 5),
+    // The same for the sync watermarks, which advance once per *successful*
+    // run of each leg. woo:sync-all runs every 30 minutes, so this allows three
+    // failed or skipped runs before alarming.
+    //
+    // Keep it below the 360-minute withoutOverlapping() expiry in Console\Kernel:
+    // a run wedged behind that lock shows up here as a watermark that stopped
+    // advancing, and a threshold above the expiry would let it clear itself
+    // before anyone was told.
+    'odoowoo_heartbeat_max_sync_minutes' => (int) env('ODOOWOO_HEARTBEAT_MAX_SYNC_MINUTES', 120),
+    // Skip simple-product updates whose payload would change nothing in Woo.
+    // Set ODOOWOO_SKIP_UNCHANGED=false to restore the old always-push behaviour.
+    'odoowoo_skip_unchanged' => (bool) env('ODOOWOO_SKIP_UNCHANGED', true),
+    // Read the Woo catalogue by SKU batches instead of paging all of it.
+    // Set ODOOWOO_SKU_LOOKUP=false to restore full-catalogue paging.
+    'odoowoo_sku_lookup' => (bool) env('ODOOWOO_SKU_LOOKUP', true),
+
+    // OdooWoo Sync Window Settings
+    // Batch runs filter Odoo by write_date >= the last successful run (see
+    // App\Services\SyncWatermark). These two tune that window.
+    //
+    // How far back before the watermark to start, covering write_date's
+    // one-second granularity and clock skew against Odoo. Kept small — the
+    // variable sync re-pushes every product it re-sees, at ~50-90s each.
+    //
+    // REQUIRES this host and the Odoo server to be NTP-synchronised: the
+    // watermark is written from this host's clock and compared against Odoo's
+    // write_date, so this value is the entire margin for the difference.
+    // Floored at 1 minute in code — 0 leaves no margin at all.
+    'odoowoo_sync_overlap_minutes' => (int) env('ODOOWOO_SYNC_OVERLAP_MINUTES', 3),
+    // Hard ceiling on the window. Without it, a stale watermark (server down
+    // for a week) turns one scheduled run into an unbounded catalogue pull.
+    //
+    // Hitting this ceiling DISCARDS the range between the watermark and the
+    // ceiling — the run logs it at error level with a --since command to
+    // recover it, then advances the watermark past it. Lowering this value
+    // shortens the outage a run can absorb before it starts losing records.
+    'odoowoo_sync_max_lookback_hours' => (int) env('ODOOWOO_SYNC_MAX_LOOKBACK_HOURS', 168),
+
     // OdooWoo POS SMS Settings
     'odoowoo_pos_sms' => (bool) env('ODOOWOO_POS_SMS_NOTIFICATIONS', false),
     'odoowoo_pos_sms_recipients' => env('ODOOWOO_POS_SMS_NOTIFICATIONS_RECIPIENTS', "0558181935"),
@@ -246,8 +294,33 @@ return [
     
     // OdooWoo Customer SMS Settings
     'odoowoo_customer_sms' => (bool) env('ODOOWOO_CUSTOMER_SMS_NOTIFICATIONS', false),
-    'odoowoo_customer_sms_time' => (bool) env('ODOOWOO_CUSTOMER_SMS_NOTIFICATIONS_TIME', '12:00'),
+    // Not cast: this is a HH:MM string passed to dailyAt(). The (bool) that
+    // used to sit here turned every configured time into `true`, which the
+    // scheduler entry masked by hardcoding 13:00.
+    'odoowoo_customer_sms_time' => env('ODOOWOO_CUSTOMER_SMS_NOTIFICATIONS_TIME', '12:00'),
     'odoowoo_customer_sms_template_1' => env('ODOOWOO_CUSTOMER_SMS_TEMPLATE', "Hey [name], it's [company]. Your recent purchase warms our hearts. Thank you for choosing us!"),
+
+    // Addressed to a customer whose Odoo contact carries no usable given name
+    // (commonly one named by phone number at the till).
+    'odoowoo_customer_sms_fallback_name' => env('ODOOWOO_CUSTOMER_SMS_FALLBACK_NAME', 'there'),
+
+    // Boolean field on res.partner recording marketing consent. Leave empty to
+    // message every customer; set it to filter to those who opted in. Ghana's
+    // Data Protection Act 2012 requires a lawful basis for direct marketing,
+    // and this template is closer to marketing than to a transactional receipt.
+    'odoowoo_customer_sms_consent_field' => env('ODOOWOO_CUSTOMER_SMS_CONSENT_FIELD', ''),
+
+    // res.partner fields to read a number from, in order of preference. Odoo 19
+    // merged `mobile` into `phone` and rejects the old name outright, so the
+    // default is `phone` alone; on Odoo 18 and earlier set "mobile,phone" to
+    // pick up till-created contacts that only filled the mobile column.
+    'odoowoo_customer_sms_phone_fields' => env('ODOOWOO_CUSTOMER_SMS_PHONE_FIELDS', 'phone'),
+
+    // Country code used to canonicalise phone numbers before de-duplication.
+    'odoowoo_sms_country_code' => env('ODOOWOO_SMS_COUNTRY_CODE', '233'),
+
+    // How long the duplicate-send ledger keeps a trading day's recipients.
+    'odoowoo_sms_ledger_days' => (int) env('ODOOWOO_SMS_LEDGER_DAYS', 90),
     
     // OdooWoo Currency Settings
     'odoowoo_currency' => env('ODOOWOO_CURRENCY', 'GHS'),
@@ -259,6 +332,7 @@ return [
     'woo_sleep_seconds' => env('WOOCOMMERCE_BATCH_WAIT_TIME', 10),
     'woo_products_per_batch' => env('WOOCOMMERCE_PRODUCTS_PER_BATCH', 10),
     'woo_default_desc' => (bool) env('WOOCOMMERCE_DEFAULT_DESCRIPTION', false),
+    'woo_brand_attribute_id' => env('WOOCOMMERCE_BRAND_ID', ''),
 
     // Odoo Settings
     'odoo_url' => env('ODOO_URL', ''),
@@ -266,14 +340,18 @@ return [
     'odoo_username' => env('ODOO_USERNAME', ''),
     'odoo_password' => env('ODOO_PASSWORD', ''),
     'odoo_delay' => env('ODOO_DELAY_SECONDS', 1),
+    'odoo_verify_ssl' => env('ODOO_VERIFY_SSL', false),
 
     // mNotify Settings
     'mnotify_api_url' => env('MNOTIFY_API_URL', ''),
     'mnotify_api_key' => env('MNOTIFY_API_KEY', ''),
     'mnotify_sender_id' => env('MNOTIFY_SENDER_ID', 'COCOWARE'),
-    
-    // myCred WooCommerce Plugin Settings
-    'mycred_enabled' => (bool) env('MYCRED_PLUGIN_ENABLED', false),
-    'mycred_default_points' => env('MYCRED_DEFAULT_POINTS', 10),
+
+    // Bounds on the gateway call. The send loop runs once per customer, so an
+    // unbounded request stalls the entire run, not just one message.
+    'mnotify_timeout' => (int) env('MNOTIFY_TIMEOUT', 15),
+    'mnotify_connect_timeout' => (int) env('MNOTIFY_CONNECT_TIMEOUT', 10),
+    'mnotify_retries' => (int) env('MNOTIFY_RETRIES', 3),
+    'mnotify_retry_delay_ms' => (int) env('MNOTIFY_RETRY_DELAY_MS', 1000),
 
 ];

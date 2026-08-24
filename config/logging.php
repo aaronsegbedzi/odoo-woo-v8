@@ -54,6 +54,28 @@ return [
             'ignore_exceptions' => false,
         ],
 
+        // Dedicated channel for all sync operations.
+        // Rotates daily and keeps 30 days of history for debugging.
+        // Usage: Log::channel('sync')->info('...', [...context])
+        'sync' => [
+            'driver' => 'daily',
+            'path'   => storage_path('logs/sync.log'),
+            'level'  => env('SYNC_LOG_LEVEL', 'debug'),
+            'days'   => 30,
+        ],
+
+        // Dedicated channel for outbound SMS. Kept apart from 'sync' because
+        // this is the audit trail for messages that cost money and cannot be
+        // recalled: one line per recipient per attempt, numbers masked to the
+        // last four digits. 365 days so a billing query months later can still
+        // be answered.
+        'sms' => [
+            'driver' => 'daily',
+            'path'   => storage_path('logs/sms.log'),
+            'level'  => env('SMS_LOG_LEVEL', 'debug'),
+            'days'   => 365,
+        ],
+
         'single' => [
             'driver' => 'single',
             'path' => storage_path('logs/laravel.log'),

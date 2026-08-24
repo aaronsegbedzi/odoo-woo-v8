@@ -33,30 +33,30 @@ class WooAttribute extends Controller
         return [];
     }
 
-    public function getAttributeTerms($id)
+    public function getAttributeTerms($id): array
     {
+        if (empty($id)) {
+            Log::channel('sync')->error('getAttributeTerms called with empty ID — check WOOCOMMERCE_BRAND_ID in .env');
+            throw new \RuntimeException('WOOCOMMERCE_BRAND_ID is not set. Add it to your .env file (e.g. WOOCOMMERCE_BRAND_ID=45).');
+        }
 
         $next_page = 1;
-        $attributes_ = [];
-        $payload = [];
+        $payload   = [];
 
         do {
             $attributes = Term::paginate($id, 100, $next_page);
-            $next_page = $attributes['meta']['next_page'];
+            $next_page  = $attributes['meta']['next_page'];
             foreach ($attributes['data'] as $value) {
                 $payload[] = $value;
             }
-            Log::info('Count: '.count($payload));
         } while ($next_page > 0);
 
-        if (count($payload) > 0) {
-            foreach ($payload as $attribute) {
-                $attributes_[] = array($attribute->id, html_entity_decode(trim($attribute->name)));
-            }
-            return $attributes_;
+        $result = [];
+        foreach ($payload as $attribute) {
+            $result[] = [$attribute->id, html_entity_decode(trim($attribute->name))];
         }
 
-        return [];
+        return $result;
     }
 
     public function createAttribute($name)

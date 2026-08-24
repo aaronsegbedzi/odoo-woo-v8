@@ -22,17 +22,10 @@ class Controller extends BaseController
         return (bool) config('app.woo_default_desc');
     }
 
-    public function mycredEnabled() {
-        return (bool) config('app.mycred_enabled');
-    }
-
-    public function mycredDefaultPoints()
-    {
-        return (int) config('app.mycred_default_points');
-    }
-
     public function odooWooCompany() {
-        return (int) config('app.odoowoo_company');
+        // Cast to string, not int: this is a trading name ("Everything Beauty
+        // GH"), and (int) silently rendered every one of them as 0.
+        return (string) config('app.odoowoo_company');
     }
 
     public function odooSleepSeconds() {
@@ -120,5 +113,27 @@ class Controller extends BaseController
             $text .= $name;
         }
         return $text;
+    }
+
+    /**
+     * Page through a search_read until all matching rows are fetched, so large
+     * batched reads can never be silently truncated by the client's default
+     * limit of 100.
+     *
+     * Subclasses must have set $this->client.
+     */
+    protected function searchReadAll(string $model, array $criteria, array $fields, int $pageSize = 500): array
+    {
+        $all    = [];
+        $offset = 0;
+
+        do {
+            sleep($this->odooSleepSeconds());
+            $page = $this->client->search_read($model, $criteria, $fields, $pageSize, $offset);
+            $all = array_merge($all, $page);
+            $offset += $pageSize;
+        } while (count($page) === $pageSize);
+
+        return $all;
     }
 }

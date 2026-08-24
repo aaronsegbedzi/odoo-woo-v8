@@ -2,21 +2,27 @@
 
 namespace App\Http\Controllers;
 
-use OdooClient\Client;
+use App\Services\OdooClient;
+use App\Services\PhoneNumber;
+use App\Services\SmsLedger;
 use Illuminate\Support\Facades\Log;
 
 class OdooPOS extends Controller
 {
-    protected $client;
-    protected $currency;
+    /** Ledger key for the daily customer thank-you campaign. */
+    private const CAMPAIGN = 'customer-daily';
+
+    protected OdooClient $client;
+    protected string $currency;
 
     public function __construct()
     {
-        $url = config('app.odoo_url');
-        $database = config('app.odoo_db', '');
-        $user = config('app.odoo_username');
-        $password = config('app.odoo_password');
-        $this->client = new Client($url, $database, $user, $password);
+        $this->client = new OdooClient(
+            config('app.odoo_url'),
+            config('app.odoo_db', ''),
+            config('app.odoo_username'),
+            config('app.odoo_password')
+        );
         $this->currency = config('app.odoowoo_currency');
     }
 
@@ -32,15 +38,10 @@ class OdooPOS extends Controller
             'order_count'
         );
 
-        $criteria = array(
-            array('start_at', '>', date($date . " 00:00:00")),
-            array('stop_at', '<', date($date . " 23:59:59")),
-            array('state', '=', 'closed')
-        );
-
         try {
-            $sessions = $this->client->search_read('pos.session', $criteria, $fields);
+            $sessions = $this->searchReadAll('pos.session', $this->sessionCriteria($date), $fields);
         } catch (\Throwable $th) {
+            Log::channel('sync')->error('Failed to fetch POS sessions', ['date' => $date, 'error' => $th->getMessage()]);
             throw $th;
         }
 
@@ -60,7 +61,7 @@ class OdooPOS extends Controller
                     );
 
                     try {
-                        $payments = $this->client->search_read('pos.payment', $criteria, $fields);
+                        $payments = $this->searchReadAll('pos.payment', $criteria, $fields);
                     } catch (\Throwable $th) {
                         throw $th;
                     }
@@ -93,109 +94,342 @@ class OdooPOS extends Controller
         }
 
         if (!empty($messages)) {
+            $smsController = new SMSController();
             foreach ($messages as $message) {
-                $smsController = new SMSController();
-                $response = $smsController->sendMessage($recipients, $message);
-                Log::info($response);
+                $result = $smsController->sendMessage(array_values($recipients), $message);
+
+                if ($result['ok']) {
+                    Log::channel('sms')->info('POS daily report sent', [
+                        'date'       => $date,
+                        'recipients' => count($recipients),
+                    ]);
+                } else {
+                    Log::channel('sms')->error('POS daily report failed', [
+                        'date'   => $date,
+                        'code'   => $result['code'],
+                        'detail' => $result['detail'],
+                    ]);
+                }
             }
         }
     }
 
-    public function getDailyCustomers($date)
+    /**
+     * Message every customer who bought at the till on $date.
+     *
+     * @param array{dry_run?: bool, limit?: int|null, retry_failed?: bool} $options
+     * @return array<string, mixed> Run summary for the calling command to print.
+     */
+    public function getDailyCustomers(string $date, array $options = []): array
     {
-        $fields = array(
-            'id'
-        );
+        $dryRun      = (bool) ($options['dry_run'] ?? false);
+        $limit       = $options['limit'] ?? null;
+        $retryFailed = (bool) ($options['retry_failed'] ?? false);
 
-        $criteria = array(
-            array('start_at', '>', date($date . " 00:00:00")),
-            array('stop_at', '<', date($date . " 23:59:59")),
-            array('state', '=', 'closed')
-        );
+        $summary = [
+            'date'          => $date,
+            'dry_run'       => $dryRun,
+            'sessions'      => 0,
+            'sessions_open' => 0,
+            'orders'        => 0,
+            'partners'      => 0,
+            'no_phone'      => 0,
+            'invalid_phone' => 0,
+            'no_consent'    => 0,
+            'already_sent'  => 0,
+            'candidates'    => 0,
+            'capped'        => 0,
+            'sent'          => 0,
+            'failed'        => 0,
+        ];
 
-        try {
-            $sessions = $this->client->search_read('pos.session', $criteria, $fields);
-        } catch (\Throwable $th) {
-            throw $th;
+        $sessions = $this->searchReadAll('pos.session', $this->sessionCriteria($date), ['id', 'name', 'stop_at']);
+        $summary['sessions'] = count($sessions);
+
+        // A session still open at run time holds orders this job will never
+        // revisit — the date window only ever moves forward. Silence here is
+        // what makes that loss unrecoverable, so it is reported instead.
+        $open = $this->searchReadAll('pos.session', $this->sessionCriteria($date, false), ['id', 'name', 'state']);
+        $summary['sessions_open'] = count($open);
+
+        if ($open !== []) {
+            Log::channel('sms')->warning('POS sessions from this date are not closed — their customers will not be messaged', [
+                'date'     => $date,
+                'sessions' => array_column($open, 'name'),
+            ]);
         }
 
+        if ($sessions === []) {
+            return $summary;
+        }
+
+        // Accumulate across every session. The previous version assigned rather
+        // than merged, so only the last register of the day survived the loop.
         $orders = [];
-        if (!empty($sessions)) {
-            foreach ($sessions as $session) {
-                sleep($this->odooSleepSeconds());
-                $fields = array(
-                    'id',
-                    'partner_id'
-                );
+        foreach ($sessions as $session) {
+            $criteria = array(
+                array('session_id', '=', $session['id']),
+                array('state', 'in', array('paid', 'done', 'invoiced'))
+            );
 
-                $criteria = array(
-                    array('session_id', '=', $session['id']),
-                    array('state', '=', 'done')
-                );
+            $orders = array_merge(
+                $orders,
+                $this->searchReadAll('pos.order', $criteria, ['id', 'partner_id'])
+            );
+        }
 
-                try {
-                    $orders = $this->client->search_read('pos.order', $criteria, $fields);
-                } catch (\Throwable $th) {
-                    throw $th;
+        $summary['orders'] = count($orders);
+
+        // pos.order.partner_id already carries [id, name], so the per-order
+        // res.partner round-trip the previous version made — each preceded by a
+        // sleep — was only ever needed for the phone number. One batched read
+        // replaces all of them.
+        $names = [];
+        foreach ($orders as $order) {
+            $partner = $order['partner_id'] ?? false;
+
+            if (!is_array($partner) || !isset($partner[0])) {
+                continue;
+            }
+
+            $names[(int) $partner[0]] = is_string($partner[1] ?? null) ? $partner[1] : '';
+        }
+
+        $summary['partners'] = count($names);
+
+        if ($names === []) {
+            return $summary;
+        }
+
+        $consentField = trim((string) config('app.odoowoo_customer_sms_consent_field', ''));
+
+        // Requesting a field the model does not have is a hard RPC error, not a
+        // null — Odoo 19 dropped `mobile` from res.partner — so the list is
+        // configuration rather than a hardcoded guess.
+        $phoneFields = array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) config('app.odoowoo_customer_sms_phone_fields', 'phone'))
+        )));
+
+        if ($phoneFields === []) {
+            $phoneFields = ['phone'];
+        }
+
+        $fields = array_merge(['id', 'name'], $phoneFields);
+        if ($consentField !== '') {
+            $fields[] = $consentField;
+        }
+
+        $partners = $this->searchReadAll(
+            'res.partner',
+            [['id', 'in', array_keys($names)]],
+            $fields
+        );
+
+        // A partner id that came off an order but no longer reads back has been
+        // deleted or made inaccessible since. The old code indexed [0] on the
+        // empty result and appended null, which surfaced downstream as a
+        // message addressed to nobody; dropping it silently would instead leave
+        // the counts unexplainable.
+        if (count($partners) < count($names)) {
+            $missing = array_diff(array_keys($names), array_map('intval', array_column($partners, 'id')));
+
+            Log::channel('sms')->warning('Some POS customers could not be read back from Odoo — not messaged', [
+                'date'        => $date,
+                'partner_ids' => array_values($missing),
+            ]);
+        }
+
+        $recipients = [];
+        foreach ($partners as $partner) {
+            $id = (int) ($partner['id'] ?? 0);
+
+            // Older Odoo stores mobiles in either column depending on how the
+            // contact was created, and the till usually fills `mobile`; reading
+            // only `phone` dropped those customers with no trace.
+            $raw = null;
+            foreach ($phoneFields as $key) {
+                if (!empty($partner[$key]) && is_string($partner[$key])) {
+                    $raw = $partner[$key];
+                    break;
                 }
             }
-        }
 
-        $customers = [];
-        if (!empty($orders)) {
-            foreach ($orders as $order) {
-                if ($order['partner_id']) {
-                    sleep($this->odooSleepSeconds());
-                    $fields = array(
-                        'id',
-                        'phone',
-                        'name'
-                    );
+            if ($raw === null) {
+                $summary['no_phone']++;
+                continue;
+            }
 
-                    $criteria = array(
-                        array('id', '=', $order['partner_id'][0]),
-                    );
+            $msisdn = PhoneNumber::normalise($raw);
 
-                    try {
-                        $customers[] = $this->client->search_read('res.partner', $criteria, $fields)[0];
-                    } catch (\Throwable $th) {
-                        throw $th;
-                    }
-                }
+            if ($msisdn === null) {
+                $summary['invalid_phone']++;
+                Log::channel('sms')->warning('Unusable customer phone number — skipped', [
+                    'partner_id' => $id,
+                    'raw'        => $raw,
+                ]);
+                continue;
+            }
+
+            if ($consentField !== '' && empty($partner[$consentField])) {
+                $summary['no_consent']++;
+                continue;
+            }
+
+            // Keyed on the canonical number, so one person entered twice with
+            // "0244..." and "+233244..." is billed and bothered once.
+            if (!isset($recipients[$msisdn])) {
+                $recipients[$msisdn] = [
+                    'msisdn'     => $msisdn,
+                    'partner_id' => $id,
+                    'name'       => $partner['name'] ?? ($names[$id] ?? ''),
+                ];
             }
         }
 
-        $customers = array_column($customers, null, 'phone');
-        $customers = array_values($customers);
-        $customers = array_filter($customers, function($value) {
-            return !empty($value['phone']);
-        });
+        // One locked read for the whole run rather than one per customer.
+        $handled = SmsLedger::handledSet(self::CAMPAIGN, $date, $retryFailed);
 
-        $messages = [];
-        if (!empty($customers)) {
-            foreach ($customers as $customer) {
-                $messages[] = array(
-                    'recipient' => $customer['phone'],
-                    'message' => $this->messageTemplate2($customer)
-                );
+        foreach ($recipients as $msisdn => $_ignored) {
+            if (isset($handled[$msisdn])) {
+                $summary['already_sent']++;
+                unset($recipients[$msisdn]);
             }
         }
 
-        if (!empty($messages)) {
-            foreach ($messages as $message) {
-                $smsController = new SMSController();
-                $response = $smsController->sendMessage(array($message['recipient']), $message['message']);
-                Log::info($response);
-                break;
+        $recipients = array_values($recipients);
+        $summary['candidates'] = count($recipients);
+
+        if (is_int($limit) && $limit > 0 && count($recipients) > $limit) {
+            $summary['capped'] = count($recipients) - $limit;
+            $recipients = array_slice($recipients, 0, $limit);
+
+            // Never let a cap read as full coverage.
+            Log::channel('sms')->notice('Recipient list capped by --limit', [
+                'date'    => $date,
+                'limit'   => $limit,
+                'skipped' => $summary['capped'],
+            ]);
+        }
+
+        if ($recipients === []) {
+            return $summary;
+        }
+
+        $smsController = new SMSController();
+
+        foreach ($recipients as $recipient) {
+            $message = $this->messageTemplate2($recipient);
+
+            if ($dryRun) {
+                $summary['sent']++;
+                Log::channel('sms')->info('DRY RUN — would send customer SMS', [
+                    'date'       => $date,
+                    'partner_id' => $recipient['partner_id'],
+                    'msisdn'     => SmsLedger::mask($recipient['msisdn']),
+                    'message'    => $message,
+                ]);
+                continue;
+            }
+
+            // Reserved before the call, so a crash mid-send cannot come back as
+            // a duplicate on the next run. See App\Services\SmsLedger.
+            SmsLedger::record(self::CAMPAIGN, $date, $recipient['msisdn'], SmsLedger::STATUS_SENDING, [
+                'partner_id' => $recipient['partner_id'],
+            ]);
+
+            $result = $smsController->sendMessage([$recipient['msisdn']], $message);
+
+            SmsLedger::record(
+                self::CAMPAIGN,
+                $date,
+                $recipient['msisdn'],
+                $result['ok'] ? SmsLedger::STATUS_SENT : SmsLedger::STATUS_FAILED,
+                [
+                    'partner_id' => $recipient['partner_id'],
+                    'code'       => $result['code'],
+                    'reference'  => $result['reference'],
+                ]
+            );
+
+            if ($result['ok']) {
+                $summary['sent']++;
+                Log::channel('sms')->info('Customer SMS sent', [
+                    'date'       => $date,
+                    'partner_id' => $recipient['partner_id'],
+                    'msisdn'     => SmsLedger::mask($recipient['msisdn']),
+                    'code'       => $result['code'],
+                    'reference'  => $result['reference'],
+                ]);
+            } else {
+                $summary['failed']++;
+                Log::channel('sms')->error('Customer SMS failed', [
+                    'date'       => $date,
+                    'partner_id' => $recipient['partner_id'],
+                    'msisdn'     => SmsLedger::mask($recipient['msisdn']),
+                    'code'       => $result['code'],
+                    'detail'     => $result['detail'],
+                    'rejected'   => $result['rejected'],
+                ]);
             }
         }
+
+        if (!$dryRun) {
+            SmsLedger::prune((int) config('app.odoowoo_sms_ledger_days', 90));
+        }
+
+        return $summary;
     }
 
-    private function formatName($inputString)
+    /**
+     * Domain selecting the POS sessions that belong to $date.
+     *
+     * Anchored on `start_at` alone. Bounding `stop_at` by the same day — as this
+     * previously did — discarded every session cashed up after midnight, and
+     * because the window only moves forward those customers were never messaged
+     * at all.
+     *
+     * The dates are passed through as-is: wrapping them in date() treated the
+     * value as a *format* string, which happened to round-trip only because
+     * digits and punctuation are not format specifiers.
+     *
+     * @param bool $closed true for cashed-up sessions, false for the rest.
+     */
+    private function sessionCriteria(string $date, bool $closed = true): array
     {
-        // Use a regular expression to remove numbers and punctuation
-        $cleanedString = explode(' ', preg_replace('/[0-9\p{P}]/u', '', $inputString));
-        return trim($cleanedString[0]);
+        return array(
+            array('start_at', '>=', $date . ' 00:00:00'),
+            array('start_at', '<=', $date . ' 23:59:59'),
+            array('state', $closed ? '=' : '!=', 'closed')
+        );
+    }
+
+    /**
+     * First usable given name, or a neutral fallback.
+     *
+     * Till operators routinely name a contact by their phone number, and the
+     * old version stripped the digits and then took the now-empty first token —
+     * addressing a paying customer as "Hey ,". Honorifics had the same effect
+     * one word later ("Hey Mrs,").
+     */
+    private function formatName($inputString): string
+    {
+        $fallback = (string) config('app.odoowoo_customer_sms_fallback_name', 'there');
+
+        if (!is_string($inputString)) {
+            return $fallback;
+        }
+
+        $cleaned = preg_replace('/[0-9\p{P}]/u', ' ', $inputString);
+        $titles  = ['mr', 'mrs', 'ms', 'miss', 'dr', 'prof', 'rev', 'sir', 'madam', 'mad'];
+
+        foreach (preg_split('/\s+/', (string) $cleaned, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $token) {
+            if (!in_array(mb_strtolower($token), $titles, true)) {
+                return $token;
+            }
+        }
+
+        return $fallback;
     }
 
     private function formatText($input)
@@ -226,7 +460,7 @@ class OdooPOS extends Controller
     private function messageTemplate2($data)
     {
         $message = config('app.odoowoo_customer_sms_template_1');
-        $message = str_replace('[name]', ucwords(strtolower($this->formatName($data['name']))), $message);
+        $message = str_replace('[name]', ucwords(mb_strtolower($this->formatName($data['name']))), $message);
         $message = str_replace('[company]', config('app.odoowoo_company'), $message);
         return $message;
     }

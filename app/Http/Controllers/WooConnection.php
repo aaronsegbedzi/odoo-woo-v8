@@ -7,33 +7,27 @@ use Codexshaper\WooCommerce\Facades\Tag;
 
 class WooConnection extends Controller
 {
+    /**
+     * Prove the WooCommerce credentials work by round-tripping the 'odoo' tag.
+     *
+     * The tag is looked up by slug rather than by scanning the tag list:
+     * Tag::all() returns only the first page — 10 of several hundred tags —
+     * so an 'odoo' tag sorting past page 1 was never found, and every run
+     * retried the create and failed with `term_exists`.
+     *
+     * A read that reaches WooCommerce at all already proves the connection;
+     * the create only runs on a store that has never been synced.
+     */
     public function connection()
     {
-        // Retrieve all tags.
-        $tags = Tag::all();
-
-        $tagExists = false;
-
-        // Check all tags for odoo slug.
-        foreach ($tags as $tag) {
-            if ($tag->slug == 'odoo') {
+        foreach (Tag::all(['slug' => 'odoo']) as $tag) {
+            if ($tag->slug === 'odoo') {
                 return 'Connection Established';
             }
         }
 
-        // Check if the tag exists. If not create the odoo tag.
-        if ($tagExists == false) {
+        Tag::create(['name' => 'odoo']);
 
-            $data = [
-                'name' => 'odoo'
-            ];
-
-            $tag = Tag::create($data);
-
-            return 'Connection Established';
-
-        }
-
-        return 'Connection Failed';
+        return 'Connection Established';
     }
 }
